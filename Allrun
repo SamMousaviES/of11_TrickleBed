@@ -1,13 +1,18 @@
 #!/bin/sh
 cd ${0%/*} || exit 1    # Run from this directory
+rm log.*
 
 # Source tutorial run functions
 . $WM_PROJECT_DIR/bin/tools/RunFunctions
-rm log.*
+
 runApplication foamCleanTutorials
 runApplication blockMesh
+runApplication topoSet
+runApplication createPatch -overwrite
 runApplication setFields
 runApplication decomposePar
 #runApplication $(getApplication)
+# runApplication mpirun -np 4 foamRun -parallel
+
 
 #------------------------------------------------------------------------------

@@ -19,10 +19,17 @@ internalField   	uniform (0 0 0);
 
 boundaryField
 {
-    top
+    inletAir
+    {
+        type            pressureInletOutletVelocity;
+        phi             phi.water;
+        value           $internalField;
+    }
+    
+    inletWater
     {
         type            fixedValue;
-        value           uniform (0 -0.1 0);
+        value           uniform (0 -0.15 0);
     }
     bottom
     {

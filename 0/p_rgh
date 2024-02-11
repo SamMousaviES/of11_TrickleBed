@@ -20,15 +20,25 @@ internalField       uniform 1e5;
 boundaryField
 {
     
-    top
+    inletAir
+    {
+        type            totalPressure;
+        U		U.air;
+	p0              uniform 1e5;	
+    }
+    
+    inletWater
     {
         type            fixedFluxPressure;
         value           $internalField;
     }
     bottom
     {
-        type            prghPressure;
-        p               $internalField;
+        type            prghTotalPressure;
+        p0              $internalField;
+        U               U.water;
+        phi             phi.water;
+        rho             rho.water;
         value           $internalField;
     }
     sym

@@ -19,7 +19,12 @@ internalField   uniform 0;
 
 boundaryField
 {
-    top
+    inletAir
+    {
+        type            zeroGradient;
+    }
+    
+    inletWater
     {
         type            zeroGradient;
     }

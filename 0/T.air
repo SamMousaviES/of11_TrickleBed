@@ -19,11 +19,18 @@ internalField       uniform 300;
 
 boundaryField
 {   
-    top
+    inletAir
     {
         type            fixedValue;
         value           $internalField;
     }
+    
+    inletWater
+    {
+        type            fixedValue;
+        value           $internalField;
+    }
+
     bottom
     {
         type            inletOutlet;

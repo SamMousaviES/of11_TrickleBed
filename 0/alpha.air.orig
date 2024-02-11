@@ -19,7 +19,15 @@ internalField   uniform 1;
 
 boundaryField
 {
-    top
+    inletAir
+    {
+        type            inletOutlet;
+        phi             phi.air;
+        inletValue      uniform 1;
+        value           uniform 1;
+    }
+    
+    inletWater
     {
         type            fixedValue;
         value           uniform 0;
@@ -27,10 +35,7 @@ boundaryField
     
     bottom
     {
-        type            inletOutlet;
-        phi             phi.air;
-        inletValue      uniform 0;
-        value           uniform 0;
+        type            zeroGradient;
     }
     
     sym

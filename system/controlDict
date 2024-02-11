@@ -18,7 +18,7 @@ application     foamRun;
 
 solver          multiphaseEuler;
 
-startFrom       startTime;
+startFrom       latestTime;
 
 startTime       0;
 

@@ -19,7 +19,13 @@ internalField       uniform 1e5;
 
 boundaryField
 {
-    top
+    inletAir
+    {
+        type            calculated;
+        value           $internalField;
+    }
+    
+    inletWater
     {
         type            calculated;
         value           $internalField;
