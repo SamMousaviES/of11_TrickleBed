@@ -23,8 +23,8 @@ boundaryField
     {
         type            inletOutlet;
         phi             phi.air;
-        inletValue      uniform 1;
-        value           uniform 1;
+        inletValue      uniform 0.4;
+        value           uniform 0.4;
     }
     
     inletWater

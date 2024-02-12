@@ -30,7 +30,7 @@ boundaryField
     inletWater
     {
         type            fixedValue;
-        value           uniform 1;
+        value           uniform 0.4;
     }
     
     bottom
