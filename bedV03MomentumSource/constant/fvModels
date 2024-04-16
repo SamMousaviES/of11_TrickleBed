@@ -1,0 +1,368 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  11
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      fvModels;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+/*
+Desrciption 
+This souce terms are defined based on the following article:
+Numerical simulation of trickle bed reactors for biological methanation
+By Simon Markthaler ⇑, Thomas Plankenbühler, Tobias Weidlich, Michael Neubert, Jürgen Karl
+
+
+
+Some notes for furthe developments
+
+* for incompressible flows (density doesn't change i.e: flow of liquids in pipes with heat transfer) you probably use "codeAddSup"
+* for compressible flows (density changes, i.e: gas reaction) you probably use "codeAddRhoSup" in this case, fvModels adds the density to the source term. You can see this in fvModels.C
+* for multiphase flows, you probably use "codeAddAlphaRhoSup" and fvModels will add the density and alpha required on the source term.
+
+const volScalarField& B = mesh().lookupObject<volScalarField>("biomass.liquid");// mass fraction of biomass
+const volScalarField& O = mesh().lookupObject<volScalarField>("O2.liquid");// mass fraction of Oxygen
+const volScalarField& S = mesh().lookupObject<volScalarField>("substrate.liquid");// mass fraction of substrate
+const volScalarField& rhoL = mesh().lookupObject<volScalarField>("rho.water");// rho of liquid phase
+
+const Time& time = mesh().time();
+
+const scalarField& V = mesh().V(); // to access mesh volume
+const scalarField& cellx = mesh().C().component(0) ;
+const scalarField& celly = mesh().C().component(1) ;
+
+*/
+F_Liquid
+    {
+        type            coded;
+        select          all;
+        active          true;
+        field           U.water;
+        codeInclude
+        #{
+
+            #include "scalar.H"
+            #include "vector.H"
+            #include "volumeFractionSource.H"
+            #include "fvmDiv.H"
+            #include "fvmLaplacian.H"
+            #include "fvcDiv.H"
+            #include "fvcGrad.H"
+            #include "surfaceInterpolate.H"
+            #include "addToRunTimeSelectionTable.H"
+        #};
+
+        codeAddSup
+        #{
+            Pout<< "**it use codeAddSup section**" << endl;        
+        #};
+
+        codeAddRhoSup
+        #{
+            Pout<< "**it use codeAddRhoSup section**" << endl;
+        #};
+
+        codeAddAlphaRhoSup
+        #{
+            
+            // Pout<< "**it use codeAddRhoSup section**" << endl;
+
+
+            // VOLUME FRACTIONS (fraction)
+            const volScalarField& alpha_water = mesh().lookupObject<volScalarField>("alpha.water");     // water volume fraction 
+            const volScalarField& alpha_air = mesh().lookupObject<volScalarField>("alpha.air");         // air volume fraction 
+            const volScalarField& alpha_solid = mesh().lookupObject<volScalarField>("alpha.solid");     // solid volume fraction 
+  
+            // VOLUME FRACTION GRADIENTS (fraction/m)
+            const volVectorField grad_alpha_water = Foam::fvc::grad(alpha_water);                         // water volume fraction gradient
+            const volVectorField grad_alpha_air = Foam::fvc::grad(alpha_air);                             // air volume fraction gradient
+            const volVectorField grad_alpha_solid = Foam::fvc::grad(alpha_solid);                         // solid volume fraction 
+
+
+            // Densities (Kg/m3)
+            const volScalarField& rho_water = mesh().lookupObject<volScalarField>("rho.water");         // water Density  
+            const volScalarField& rho_air = mesh().lookupObject<volScalarField>("rho.air");             // air Density
+            const volScalarField& rho_solid = mesh().lookupObject<volScalarField>("rho.solid");         // solid Density
+                
+            // Viscosities (Pa.s) ??
+            const volScalarField& mu_water = mesh().lookupObject<volScalarField>("mu.water");           // water viscosity 
+            const volScalarField& mu_air = mesh().lookupObject<volScalarField>("mu.air");               // air viscosity
+            const volScalarField& mu_solid = mesh().lookupObject<volScalarField>("mu.solid");           // solid viscosity
+
+            // Velocities (m/s)
+            const volVectorField& U_water = mesh().lookupObject<volVectorField>("U.water");             // water velocity
+            const volVectorField& U_air = mesh().lookupObject<volVectorField>("U.air");                 // air velocity
+            const scalar deltaT = mesh().time().deltaT().value();
+
+
+            scalar d_particle = 0.0107;
+            scalar porosity = 0.49;
+            scalar surface_tension = 0.073;
+            scalar fe = 0.51; // wetting efficiency
+            scalar Emu = 153.0; 
+            scalar Erho = 3.4;
+            scalar TG;
+            scalar TL;
+            scalar C1 = 3.592;
+            scalar C2 = 1.140;
+            scalar EmuG;
+            scalar ErhoG;
+            scalar EmuL;
+            scalar ErhoL;
+            scalar S_m = 0.31;
+            scalar U_L;
+            scalar U_G;
+            scalar U_G_prime;
+            scalar K_GL;
+            scalar K_LS;
+            scalar grad_alpha_water_cellx;
+            scalar grad_alpha_air_cellx;
+            scalar epsiDelta = 0.0;
+
+            scalar uD_G; //EQ21 & 22
+            scalar uD_L;
+            scalar F_dispx;
+            scalar F_dispy;
+            scalar F_intx;
+            scalar F_inty;
+
+            scalar sourceUx;
+            scalar sourceUy;
+            // vectorField sourceU(1,3);
+
+            scalar Uwx;
+            scalar Uwy;
+            scalar Ugx;
+            scalar Ugy;
+            scalar mugS = mu_air[0];
+            scalar muwS = mu_water[0];
+            scalar rhogS = rho_air[0];
+            scalar rhowS = rho_water[0];
+            scalar alpha_waterS;
+            scalar alpha_airS;
+            vectorField& USource = eqn.source();
+            vectorField& psi1 = eqn.psi();
+
+
+            scalar T0 = sqrt(Emu /72);
+            scalar ft = Erho/(6*pow(T0, 3));
+            // Pout << endl << "******LIQUID" << endl;
+            forAll(USource, i)
+            {   
+                grad_alpha_water_cellx = grad_alpha_water[i][0];
+                grad_alpha_air_cellx = grad_alpha_air[i][0];
+                Uwx = U_water[i][0];
+                Uwy = U_water[i][1];
+                Ugx = U_air[i][0];
+                Ugy = U_air[i][1];
+                alpha_airS = alpha_air[i];
+                alpha_waterS = alpha_water[i];
+
+                TG = (T0+1)/2 + alpha_airS*((T0+1)/2 - 1);
+                TL = T0 * pow(C1, pow(alpha_airS, C2));
+
+                EmuG = 72 * pow(TG,2);
+                ErhoG =  6*ft*pow(TG,3);
+
+                EmuL = 72 * pow(TL,2);
+                ErhoL =  6*ft*pow(TL,3);
+
+                U_L = Foam::mag(U_water[i]); 
+                
+                    
+                U_G_prime = Foam::mag(U_air[i])/(alpha_airS+epsiDelta);
+                // EQ 10
+	            K_GL =  (EmuG * pow(fabs(1.0 - alpha_airS), 2) * mugS / ((alpha_airS + epsiDelta) * d_particle*d_particle)) + 
+                        (ErhoG * fabs(1.0 - alpha_airS) * rhogS * fabs(U_G_prime-U_L) / d_particle );
+                // EQ 11
+                K_LS =  (EmuL * pow(fabs(1.0 - porosity), 2) * muwS / ((alpha_waterS + epsiDelta) * d_particle*d_particle)) + 
+                        (ErhoL * fabs(1.0 - porosity) * rhowS * U_L / d_particle );
+                // F_disp source for liquid phase based on equation 20
+                // x direction  
+                uD_G = -1.0 * S_m * fabs(Ugy)/((alpha_airS)) * grad_alpha_air_cellx;
+                uD_L = -1.0 * S_m * fabs(Uwy)* grad_alpha_water_cellx /(alpha_waterS+epsiDelta);
+                
+                F_dispx =  fe * K_LS * (uD_L) - fe * K_GL * (uD_G/alpha_airS - uD_L) ;
+                // y direction  
+                
+                if (fabs(F_dispx*deltaT) > 0.05)
+                {
+                F_dispx = 0;
+                }
+
+
+                if (fabs(sourceUx*deltaT) > 0.01)
+                {
+                    // Pout << "dalphaWxsGx =" << vector(grad_alpha_water_cellx, grad_alpha_air_cellx, i)  << "**";
+                    // Pout << "dalphaWxsGx =" << vector(grad_alpha_water_cellx, grad_alpha_air_cellx, i)  << "**";
+                    Pout << "(F_dispx*deltaT, rhogS, i)  =" << vector(F_dispx*deltaT, rhogS, i)   << endl ;
+                    // Pout << "(sourceUx*deltaT, rhogS, i)  =" << vector(sourceUx*deltaT, rhogS, i)   << "(K_GL, K_LS,i) =" << vector(K_GL, K_LS,i) ;
+                    // Pout << "(deltaT,0, i)  =" << vector(deltaT, 0, i) << "**";
+                    // Pout << "(U_waterx, U_watery, i)  =" << vector(U_water[i][0], U_water[i][1], i)  << "**";
+                //     Pout << "Fx ="<< sourceUx << "Fy ="<< sourceUy << "**";
+                // Pout << "(K_GL, K_LS,0) =" << vector(K_GL, K_LS,0)  << "**";
+                 }   
+                // USource[i] += psi1[i];
+                // Pout << "Usource ="<< USource[i]  << "Psi1 ="<< psi1[i]  << "Uxyz ="<< vector(sourceUx, sourceUy, 0)  << "**";
+                USource += vector(F_dispx*deltaT, 0, 0) ;
+                // USource += vector(0, 0, 0) ;
+                
+                // USource[i][0] -=  sourceUx;
+                // USource[i][1] -=  sourceUy;
+                
+                // for dibuging purposes
+                //Info<< i << endl;
+                // Pout << sourceUx << "**";
+                
+            };
+                               
+        #};
+    }
+
+
+
+    
+    // F_disp_G
+    // {
+    //     type            coded;
+    //     select          all;
+    //     active          true;
+    //     field           U.air;
+    //     codeInclude
+    //     #{
+    //         #include "scalar.H"
+    //         #include "vector.H"
+    //         #include "volumeFractionSource.H"
+    //         #include "fvmDiv.H"
+    //         #include "fvmLaplacian.H"
+    //         #include "fvcDiv.H"
+    //         #include "fvcGrad.H"
+    //         #include "surfaceInterpolate.H"
+    //         #include "addToRunTimeSelectionTable.H"
+    //     #};
+
+    //     codeAddSup
+    //     #{
+    //         Pout<< "**it use codeAddSup section**" << endl;        
+    //     #};
+
+    //     codeAddRhoSup
+    //     #{
+    //         Pout<< "**it use codeAddRhoSup section**" << endl;
+    //     #};
+
+    //     codeAddAlphaRhoSup
+    //     #{
+            
+    //                     // VOLUME FRACTIONS (fraction)
+    //         const volScalarField& alpha_water = mesh().lookupObject<volScalarField>("alpha.water");     // water volume fraction 
+    //         const volScalarField& alpha_air = mesh().lookupObject<volScalarField>("alpha.air");         // air volume fraction 
+    //         const volScalarField& alpha_solid = mesh().lookupObject<volScalarField>("alpha.solid");     // solid volume fraction 
+  
+    //         // VOLUME FRACTION GRADIENTS (fraction/m)
+    //         const volVectorField grad_alpha_water = Foam::fvc::grad(alpha_water);                         // water volume fraction gradient
+    //         const volVectorField grad_alpha_air = Foam::fvc::grad(alpha_air);                             // air volume fraction gradient
+    //         const volVectorField grad_alpha_solid = Foam::fvc::grad(alpha_solid);                         // solid volume fraction 
+
+
+    //         // Densities (Kg/m3)
+    //         const volScalarField& rho_water = mesh().lookupObject<volScalarField>("rho.water");         // water Density  
+    //         const volScalarField& rho_air = mesh().lookupObject<volScalarField>("rho.air");             // air Density
+    //         const volScalarField& rho_solid = mesh().lookupObject<volScalarField>("rho.solid");         // solid Density
+                
+    //         // Viscosities (Pa.s) ??
+    //         const volScalarField& mu_water = mesh().lookupObject<volScalarField>("mu.water");           // water viscosity 
+    //         const volScalarField& mu_air = mesh().lookupObject<volScalarField>("mu.air");               // air viscosity
+    //         const volScalarField& mu_solid = mesh().lookupObject<volScalarField>("mu.solid");           // solid viscosity
+
+    //         // Velocities (m/s)
+    //         const volVectorField& U_water = mesh().lookupObject<volVectorField>("U.water");             // water velocity
+    //         const volVectorField& U_air = mesh().lookupObject<volVectorField>("U.air");                 // air velocity
+
+    //         scalar d_particle = 0.0107;
+    //         scalar porosity = 0.40;
+    //         scalar surface_tension = 0.073;
+    //         scalar fe = 0.51; // wetting efficiency
+    //         scalar EmuG = 153.0; 
+    //         scalar ErhoG = 3.4;
+    //         scalar EmuL = 153.0;
+    //         scalar ErhoL = 3.4;
+    //         scalar S_m = 0.31;
+    //         scalar U_L;
+    //         scalar U_G;
+    //         scalar U_G_prime;
+    //         scalar K_GL;
+    //         scalar K_GS;
+    //         scalar grad_alpha_water_cellx;
+    //         scalar grad_alpha_air_cellx;
+    //         scalar epsiDelta = 0.01;
+
+    //         scalar sourceUx;
+    //         scalar sourceUy;
+    //         // vectorField sourceU(1,3);
+
+    //         scalar Uwx;
+    //         scalar Uwy;
+    //         scalar Ugx;
+    //         scalar Ugy;
+    //         scalar mugS = mu_air[0];
+    //         scalar muwS = mu_water[0];
+    //         scalar rhogS = rho_air[0];
+    //         scalar rhowS = rho_water[0];
+    //         scalar alpha_waterS;
+    //         scalar alpha_airS;
+    //         vectorField& USource = eqn.source();
+    //         vectorField& psi1 = eqn.psi();
+
+    //         Pout << endl << "******GAS" << endl;
+    //         forAll(USource, i)
+    //         {   
+    //             grad_alpha_water_cellx = grad_alpha_water[i][0];
+    //             grad_alpha_air_cellx = grad_alpha_air[i][0];
+    //             Uwx = U_water[i][0];
+    //             Uwy = U_water[i][1];
+    //             Ugx = U_air[i][0];
+    //             Ugy = U_air[i][1];
+    //             alpha_airS = alpha_air[i];
+    //             alpha_waterS = alpha_water[i];
+
+
+    //             U_L = sqrt(fabs(Uwx * Uwx + Uwy * Uwy));
+    //             U_G_prime = sqrt(fabs(Ugx*Ugx+Ugy*Ugy)/(alpha_airS + epsiDelta));
+
+    //             // EQ 10
+	//             K_GL = (EmuG * fabs(1.0 - alpha_airS) * fabs(1.0 - alpha_airS) * mugS / ((alpha_airS+ epsiDelta) * d_particle*d_particle)) + (ErhoG * fabs(1.0 - alpha_airS) * rhogS * fabs(U_G_prime-U_L) / d_particle );
+    //             // EQ 9
+    //             K_GS = (EmuG * fabs(1.0 - alpha_airS) * fabs(1.0 - alpha_airS) * mugS / ((alpha_waterS + epsiDelta) * d_particle*d_particle)) + (ErhoG * fabs(1.0 - alpha_airS) * rhogS * U_G_prime / d_particle );
+	            
+    //             // F_disp source for liquid phase based on equation 20
+    //             // x direction  
+    //             sourceUx = fabs(1-fe) * K_GS * (-1.0 * S_m * fabs(Ugy)/((alpha_airS*alpha_airS+epsiDelta)) * grad_alpha_air_cellx) + fe * K_GL * ((-1.0 * S_m * fabs(U_G_prime)/((alpha_airS+epsiDelta)) * grad_alpha_air_cellx) - (-1.0 * S_m * fabs(Uwy)/(alpha_waterS+epsiDelta) * grad_alpha_water_cellx)) ;
+    //             // y direction  
+    //             sourceUy = fabs(1-fe) * K_GS * (-1.0 * S_m * fabs(Ugy)/((alpha_airS*alpha_airS+epsiDelta)) * grad_alpha_air_cellx) + fe * K_GL * ((-1.0 * S_m * fabs(U_G_prime)/((alpha_airS+epsiDelta)) * grad_alpha_air_cellx) - (-1.0 * S_m * fabs(Uwy)/(alpha_waterS+epsiDelta) * grad_alpha_water_cellx)) ;
+
+    //             // USource += vector(sourceUx, sourceUy, 0) ;
+    //                 if (fabs(sourceUx) > 0.1)
+    //                 Pout << "Uxyz =" << vector(sourceUx, sourceUy, i)   << "(K_GL, K_GS,i) =" << vector(K_GL, K_GS,i) << "**";
+    //             // USource[i][0] -=  sourceUx;
+    //             // USource[i][1] -=  sourceUy;
+                
+    //             // for dibuging purposes
+    //             //Info<< i << endl;
+    //             // Pout << sourceUx << "**";
+                
+    //         };
+                               
+    //     #};
+
+    // };
+
+
+// ************************************************************************* //
