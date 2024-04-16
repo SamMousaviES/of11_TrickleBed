@@ -27,13 +27,13 @@ mpirun -np 20 foamRun -parallel
 
 The versions of the cases are structured to guide the user from basic to advanced implementations:
 
-bedV00_original: Adapted from the OpenFOAM 11 tutorial, this serves as the baseline case.
+- bedV00_original: Adapted from the OpenFOAM 11 tutorial, this serves as the baseline case.
 
-bedV01ErgunRealSizeBed: Utilizes built-in Ergun drag formulations with precisely defined geometries to match real dimensions.
+- bedV01ErgunRealSizeBed: Utilizes built-in Ergun drag formulations with precisely defined geometries to match real dimensions.
 
-bedV02MomentumSource_NoSources: A template-like case designed for the incorporation of source terms.
+- bedV02MomentumSource_NoSources: A template-like case designed for the incorporation of source terms.
 
-bedV03MomentumSource: Features explicitly defined source terms using the fvModels file, ideal for further development and integration of complex physical phenomena.
+- bedV03MomentumSource: Features explicitly defined source terms using the fvModels file, ideal for further development and integration of complex physical phenomena.
 
 
 ## Authors
